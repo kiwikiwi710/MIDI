@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/addons/p5.dom.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/addons/p5.sound.min.js"></script>
+
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: #8f4b4b71;
+      }
+      canvas {
+        display: block;
+        margin: auto;
+      }
+      h1{
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        position: absolute;
+        top: 10px; /* 可以調整這個值來改變按鈕的垂直位置 */
+      }
+      .upload-container {
+          width: 100%;
+          display: flex;
+          justify-content: center;
+          position: absolute;
+          top: 600px; /* 可以調整這個值來改變按鈕的垂直位置 */
+      }
+
+      .custom-file-upload {
+        padding: 10px 15px;
+        background-color: rgba(29, 133, 4, 0.745);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+
+      }
+
+      .custom-file-upload:hover {
+        background-color: #0b3800;
+      }
+
+      .save-btn {
+            padding: 10px 20px;
+            background-color: rgb(76, 175, 80);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .save-btn:hover {
+            background-color: hsl(108, 100%, 11%);
+        }
+    </style>
+  </head>
+  <body>
+    <h1>程式設計與美學創作Final Project</h1>
+    <div class="upload-container">
+      <input type="file" id="fileUpload" class="custom-file-upload" accept=".txt">
+      <button class="save-btn" onclick="saveArrayToFile()">儲存到MIDI</button>
+    </div>
+    
+    <main></main>
+     
+
+    <script>
+      let inputSequence=[];
+      let recordSequence=[];
+      let soundFiles = [];
+      let currentIndex=0;
+      let midiNotes =   [[48,50,52,53,55,57,59],
+                        [60,62,64,65,67,69,71]];
+
+      const midiToKeyIndex = {
+        48: 0,  // C3
+        50: 1,  // D3
+        52: 2,  // E3
+        53: 3,  // F3
+        55: 4,  // G3
+        57: 5,  // A3
+        59: 6,  // B3
+        60: 7,  // C4
+        62: 8,  // D4
+        64: 9,  // E4
+        65: 10, // F4
+        67: 11, // G4
+        69: 12, // A4
+        71: 13, // B4
+      };
+
+      let midiVal, freq;
+
+      let n = 14;
+      let startX = 70, startY = 70;//virtual piano's left corner point
+      let R = 125, G = 25, B = 255;
+      let clickingKey = 0, clickingKeyForMouse=0;  //點擊的MIDI number的array index
+      let clickingKeyMIDI = 0;//點擊的MIDI number
+      
+      let answer=0;
+      let startButton=0;
+      let startPlay=0;
+      let resetButton=0;
+      let recordButton=0;
+
+      let setOfMyArray = 0; //0=>第一個八度,1=>第二個八度
+      let myArray = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+
+      document.getElementById('fileUpload').addEventListener('change', function(e) {
+          const file = e.target.files[0];
+          if (file) {
+              const reader = new FileReader();
+              reader.onload = function(e) {
+                  const content = e.target.result;
+                  // 將檔案內容分割成數字陣列
+                  inputSequence = content.split(/[,\s\n]+/).map(num => parseInt(num.trim()));
+                  // 重置練習狀態
+                  currentIndex = 0;
+                  clickingKey = midiToKeyIndex[inputSequence[0]];
+                  answer = 0;
+                  startButton = 0;//確認是否按下鋼琴鍵(0=>沒有，1=>有)
+                  startPlay=0;
+              };
+              reader.readAsText(file);
+          }
+      });
+
+      function preload() {
+        let fileNames =['48','50','52','53','55','57','59','60','62','64','65','67','69','71'];
+                        
+        for(let fileName of fileNames) {
+          soundFiles.push(loadSound(`guitar wav/${fileName}.wav`));
+        }
+      }
+
+      function setup() {
+        createCanvas(700, 600);
+        background(63, 221, 24);
+
+        midiInput = new MIDIInput();
+         // Override onMIDIMessage callback with custom function
+        midiInput.onMIDIMessage = onMIDIMessage;
+
+        // 初始化音頻相關物件
+        osc = new p5.SinOsc();
+        env = new p5.Envelope();
+
+        clickingKey=midiToKeyIndex[inputSequence[0]];
+      }
+
+      function draw() {
+        frameRate(25);
+        background(63, 221, 24);
+        fill(0,0,0);
+        let chooseDisplay=clickingKeyForMouse%7;
+        textSize(15);
+        text("MIDI Number : " +clickingKeyMIDI,10,15);
+        if(inputSequence.length!=0){
+          text("InputSequence : ",10,35);
+          let temp=Math.floor(currentIndex/34);
+          for(let i=temp*34;(i<(temp+1)*34 && (i<inputSequence.length));i++){
+            if(i==currentIndex){
+              fill(255,0,0);
+              text(inputSequence[i],10+(i%34)*20,55);
+            }else{
+              fill(0);
+              text(inputSequence[i],10+(i%34)*20,55);  
+            }
+          }   
+        }
+       
+        fill(0,0,0);
+
+        if(currentIndex<inputSequence.length && inputSequence.length>=1 &&startPlay==1){//如果還跑完input的midi file，則顯示下一個midi number
+          textSize(20);
+          text("next correct Key ："+inputSequence[currentIndex],10,startY+150+50);
+        }if(currentIndex==(inputSequence.length)&&inputSequence.length>=1){
+          textSize(40);
+          text("Finish !",290,400);           
+          answer=0;
+          startButton=0;
+          startPlay=0;
+        }
+        noFill();
+        piano(startX,startY, n);
+  
+        //點擊START鍵
+        if(startPlay==0){
+
+          if((mouseX<=450 && mouseX>=400)&&(mouseY<=350 && mouseY>=300)){
+          fill(11,56,0);
+          }else{fill(76,175,80);}
+          rect(400,300,50,50,3);
+          textSize(20);
+          fill(255);
+          stroke(11,56,0);
+          text("start",405,330);
+          stroke(0);
+
+          if((mouseX<=265 && mouseX>=195)&&(mouseY<=350 && mouseY>=300)){
+          fill(11,56,0);
+          }else{fill(76,175,80);}
+          rect(195,300,70,50,3);
+          textSize(20);
+          fill(255);
+          stroke(11,56,0);
+          text("record",200,330);
+          stroke(0);
+
+          if(recordButton==1){
+              if(recordSequence.length!=0 ){
+                if((mouseX<=150 && mouseX>=90)&&(mouseY<=(startY+150+260) && mouseY>=(startY+150+240))){
+                  fill(11,56,0);
+                }else{fill(76,175,80);}
+                rect(90,startY+150+240,60,20,3);
+                
+                fill(255);
+                stroke(11,56,0);
+                text("reset",95,startY+150+255);
+                stroke(0);
+                textSize(15);
+                fill(0);
+              }
+              if((mouseX<=70 && mouseX>=10)&&(mouseY<=(startY+150+260) && mouseY>=(startY+150+240))){
+                  fill(11,56,0);
+              }else{fill(76,175,80);}
+              rect(10,startY+150+240,60,20,3);
+              fill(255);
+              stroke(11,56,0);
+              textSize(20);
+              text("close",15,startY+150+255);
+              stroke(0);
+              textSize(15);
+              fill(0);
+              textSize(15); 
+              text("record midi number :",10,startY+150+210);
+
+              let temp2=Math.floor((recordSequence.length-1)/34);
+              for(let i=temp2*34;(i<(temp2+1)*34 && (i<recordSequence.length));i++){
+                textSize(15);
+                fill(0,0,0);
+                text(recordSequence[i],10+(i%34)*20,startY+150+230);
+              }
+          }
+          if(inputSequence.length==0){
+              textSize(20);
+              fill(0);
+              text("You can input the file to start practice !",170,50);
+          }          
+        }else{
+          fill(0,0,0);
+          textSize(30);
+          if(answer){
+            //clickingKey=midiToKeyIndex[inputSequence[currentIndex]];
+            text("CORRECT !",280,startY+150+150);
+          }else if(startButton){
+            fill(255,0,0);
+            text("UNCORRECT !",280,startY+150+150);
+            fill(0);
+          }
+        }
+        noFill();
+      }
+
+
+      function mouseClicked() {
+        if ((mouseX <= (startX + n * 40) && mouseX >= startX) && mouseY >= startY && mouseY <= startY+150) {
+          R = random(255); G = random(255); B = random(255);
+          //clickingKey = Math.floor((mouseX - startX) / 40);//0~(n-1)
+          clickingKeyForMouse=Math.floor((mouseX - startX) / 40);
+          setOfMyArray = Math.floor(Math.floor((mouseX - startX) / 40) / 7);//0~1
+          clickingKeyMIDI=midiNotes[setOfMyArray][clickingKeyForMouse%7];
+          soundFiles[midiToKeyIndex[clickingKeyMIDI]].play();
+          if(!answer){
+            clickingKey=midiToKeyIndex[inputSequence[currentIndex]];
+          }
+        }
+        if((mouseX<=450 && mouseX>=400)&&(mouseY<=350 && mouseY>=300) && inputSequence.length>=1){//startPlay
+          startPlay=1;
+          currentIndex=0;
+          resetButton=0;
+          recordButton=0;
+          clickingKey=midiToKeyIndex[inputSequence[0]];
+          recordSequence.splice(0,recordSequence.length);
+        }
+        if((mouseX<=70 && mouseX>=10)&&(mouseY<=(startY+150+260) && mouseY>=(startY+150+240))){ //closeButton
+          recordButton=0;
+          recordSequence.splice(0,recordSequence.length);
+        }
+        if((mouseX<=265 && mouseX>=195)&&(mouseY<=350 && mouseY>=300)){//recordButton
+          recordButton=1;
+        }
+        if((mouseX<=150 && mouseX>=90)&&(mouseY<=(startY+150+260) && mouseY>=(startY+150+240))&&recordSequence.length>=1){ //resetButton
+          recordSequence.splice(0,recordSequence.length);
+          resetButton=1;
+        }
+      }
+
+      function piano(x, y, while_number) {
+        // 白鍵
+        stroke(0);
+        for (let i = 0; i < while_number; i++) {
+          if (i != clickingKey) {
+            fill(255, 255, 255);
+            rect((x + 40 * i), y, 40, 150, 5);
+          } else {
+            fill(R, G, B);
+            rect((x + 40 * i), y, 40, 150, 5);
+            fill(255,0,0);
+            circle((startX +20+40 * clickingKey), startY+170,10);
+            noFill();
+          }
+        }
+        // 黑鍵
+        fill(0, 0, 0)
+        for (let j = 0; j < (while_number / 7); j++) {
+          for (let i = 1; i <= 7; i++) {
+            if (i != 3 && i != 7) {
+              rect((x + 30) + (7 * 40 * j) + 40 * (i - 1), y, 20, 90, 4);
+            }
+            textSize(10);
+            if (j != setOfMyArray)
+              text(myArray[i - 1], (x + 15) + (7 * 40 * j) + 40 * (i - 1), startY+120);
+            else {
+              if (i != (clickingKey % 7 + 1))
+                text(myArray[i - 1], (x + 15) + (7 * 40 * j) + 40 * (i - 1), startY+120);
+              else {
+                text(myArray[i - 1], (x + 15) + (7 * 40 * j) + 40 * (i - 1), startY+120);
+              }
+            }
+          }
+        }
+        noFill();
+      }
+
+      function playNote(midiVal) {
+        osc.start();
+        freq = midiToFreq(midiVal);
+        osc.freq(freq);
+        env.play(osc);
+      }
+
+      function onMIDIMessage(data) {
+        let msg = new MIDI_Message(data.data);
+        console.log(msg);
+        if(msg.type=='NOTE_ON' && (msg.note>=48&&msg.note<=71) ){
+          if(startPlay==1){
+            startButton=1;
+            if(msg.note==inputSequence[currentIndex]){
+              answer=1;
+              R = random(255); G = random(255); B = random(255);
+              currentIndex++;
+              clickingKey=midiToKeyIndex[inputSequence[currentIndex]];
+              clickingKeyMIDI=msg.note;
+            }else{
+              answer=0;
+            }
+          }else{
+            if(recordButton==1){recordSequence.push(msg.note);}
+            clickingKey=midiToKeyIndex[msg.note];
+            clickingKeyMIDI=msg.note;
+          }
+        soundFiles[midiToKeyIndex[msg.note]].play(); 
+        }
+      }
+      function saveArrayToFile() {
+        if(recordSequence.length!=0){
+            // 將陣列轉換為字符串（這裡用逗號分隔）
+          const content = recordSequence.join(',');
+
+          const blob = new Blob([content], { type: 'text/plain' });
+                
+          // 創建下載連結
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'midi.txt'; // 設定下載的文件名
+                
+          // 觸發下載
+          a.click();
+                
+          // 釋放 URL 對象
+          URL.revokeObjectURL(a.href);
+        }
+        
+    }
+    </script>
+
+    <script>
+    class MIDI_Message {
+      constructor(data) {
+          /*
+          data 是 Uint8Array[3]，包含以下資訊：
+          data[0] : 指令/通道
+          data[1] : 音符
+          data[2] : 速度
+          */
+          this.cmd = data[0] >> 4; // 取得指令 (高 4 位)
+          this.channel = data[0] & 0xf; // 取得通道，範圍為 0-15
+          this.type = data[0] & 0xf0; // 判斷消息類型
+          this.note = data[1]; // 音符值
+          this.velocity = data[2]; // 
+  
+  
+          if (this.velocity == 0) {
+              this.type = 'NOTE_OFF';
+          } else {
+              this.type = 'NOTE_ON';
+          }
+  
+          // 將物件轉為字串顯示訊息
+          this.toString = function () {
+              return 'type=' + this.type +
+                  ' channel=' + this.channel +
+                  ' note=' + this.note +
+                  ' velocity=' + this.velocity;
+          };
+      }
+  }
+  
+  MIDI_Message.NOTE_ON = 144;  // NOTE_ON 指令常數qz
+  MIDI_Message.NOTE_OFF = 128; // NOTE_OFF 指令常數
+  
+  class MIDIInput {
+  
+      constructor() {
+          this.onMIDISuccess = this.onMIDISuccess.bind(this);
+          // 請求 MIDI 存取權限
+          if (navigator.requestMIDIAccess) {
+              navigator.requestMIDIAccess({
+                  sysex: false // 不支援系統專用消息
+              }).then(this.onMIDISuccess, this.onMIDIFailure);
+          } else {
+              alert("您的瀏覽器不支援 MIDI 功能。");
+          }
+      }
+  
+      // MIDI 存取成功的處理
+      onMIDISuccess(midiAccess_) {
+          var inputs = midiAccess_.inputs.values();
+          for (var input = inputs.next(); input && !input.done; input = inputs.next()) {
+              console.log(input.value.name); // 顯示 MIDI 設備名稱
+              input.value.onmidimessage = this.onMIDIMessage; // 當接收到 MIDI 訊息時，觸發 onMIDIMessage
+          }
+      }
+  
+      // 處理接收到的 MIDI 訊息
+      onMIDIMessage(raw_msg) {
+          let msg = new MIDI_Message(raw_msg.data); // 將資料轉為 MIDI_Message 類別
+          console.log(msg); // 顯示 MIDI 訊息
+      }
+  
+      // 當 MIDI 存取失敗時的處理
+      onMIDIFailure(e) {
+          console.log("無法存取 MIDI 設備，或您的瀏覽器不支援 WebMIDI API。請使用 WebMIDIAPIShim " + e);
+      }
+  }
+    
+    </script>
+  </body>
+</html>
